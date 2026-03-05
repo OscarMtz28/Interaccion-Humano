@@ -1,18 +1,23 @@
 import { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Medication, MedicationStatus } from '../types';
+import type { Medication, MedicationStatus, MedicationHistory } from '../types';
 
 const STORAGE_KEY = 'medication_tracker_data';
+const HISTORY_KEY = 'medication_tracker_history';
 
 export const useMedications = () => {
   const [medications, setMedications] = useState<Medication[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Error parsing medications from local storage:', e);
-      }
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return [];
+  });
+
+  const [history, setHistory] = useState<MedicationHistory[]>(() => {
+    const saved = localStorage.getItem(HISTORY_KEY);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
     }
     return [];
   });
@@ -21,6 +26,10 @@ export const useMedications = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(medications));
   }, [medications]);
+
+  useEffect(() => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }, [history]);
 
   // Reset status to pending for a new day
   useEffect(() => {
@@ -56,12 +65,42 @@ export const useMedications = () => {
 
   const updateStatus = (id: string, status: MedicationStatus) => {
     setMedications(meds =>
-      meds.map(med => (med.id === id ? { ...med, status } : med))
+      meds.map(med => {
+        if (med.id === id) {
+          // Si cambia a "taken", registrar en el historial
+          if (status === 'taken' && med.status !== 'taken') {
+            const newHistoryRecord: MedicationHistory = {
+              id: uuidv4(),
+              medicationId: med.id,
+              name: med.name,
+              dosage: med.dosage,
+              scheduledTime: med.time,
+              takenAt: new Date().toISOString(),
+            };
+            setHistory(prev => [newHistoryRecord, ...prev]);
+          }
+          // Si cambia a "pending" (deshacer), eliminar el registro más reciente de este medicamento hoy
+          if (status === 'pending' && med.status === 'taken') {
+            const todayStr = new Date().toISOString().split('T')[0];
+            setHistory(prev => {
+              const newHistory = [...prev];
+              const idx = newHistory.findIndex(h => h.medicationId === med.id && h.takenAt.startsWith(todayStr));
+              if (idx !== -1) newHistory.splice(idx, 1);
+              return newHistory;
+            });
+          }
+          
+          return { ...med, status };
+        }
+        return med;
+      })
     );
   };
 
-  const deleteMedication = (id: string) => {
-    setMedications(meds => meds.filter(med => med.id !== id));
+  const deleteTreatment = (name: string) => {
+    if (window.confirm(`¿Estás seguro de que deseas eliminar el tratamiento completo de ${name}? Esto borrará todas las tomas programadas y es permanente.`)) {
+      setMedications(meds => meds.filter(med => med.name.trim().toLowerCase() !== name.trim().toLowerCase()));
+    }
   };
   
   const postponeMedication = (id: string, minutes: number = 30) => {
@@ -79,11 +118,19 @@ export const useMedications = () => {
     );
   };
 
+  const clearHistory = () => {
+    if (window.confirm("¿Eliminar todo el historial? Esto no afectará tus recordatorios diarios.")) {
+      setHistory([]);
+    }
+  };
+
   return {
     medications,
+    history,
     addMedication,
     updateStatus,
-    deleteMedication,
+    deleteTreatment,
     postponeMedication,
+    clearHistory
   };
 };

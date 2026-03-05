@@ -9,3 +9,12 @@ export interface Medication {
   lastUpdatedDate: string; // YYYY-MM-DD
   notes?: string;
 }
+
+export interface MedicationHistory {
+  id: string; // ID of the history record
+  medicationId: string;
+  name: string;
+  dosage: string;
+  scheduledTime: string;
+  takenAt: string; // ISO DateTime
+}
